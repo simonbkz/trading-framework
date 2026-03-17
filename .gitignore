@@ -1,0 +1,15 @@
+.env
+*.pyc
+__pycache__/
+data_cache/
+signals/
+models/
+parameters/
+*.log
+.ipynb_checkpoints/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
