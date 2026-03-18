@@ -123,8 +123,9 @@ def generate_signals(assets: list, timeframe: str, start: str, equity: float):
     #    but we must only send it to MT5 once to prevent duplicate trades.
     new_signals = []
     for sig in signals:
-        # Use the signal bar timestamp (from proposal) as dedup key
-        key = f"{sig.asset}|{sig.side}|{sig.timestamp}"
+        # Use asset|side|entry as dedup key (entry price is stable per bar)
+        # sig.timestamp is datetime.now() so it changes every cycle — unusable
+        key = f"{sig.asset}|{sig.side}|{sig.entry}"
         if key in _emitted_signals:
             log.info("Skipping duplicate signal: %s %s (already emitted)", sig.asset, sig.side)
             continue

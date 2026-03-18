@@ -40,7 +40,12 @@ class RegimeDefinition:
 
 
 REGIME_DEFINITIONS: Dict[str, RegimeDefinition] = {
-    # All regimes use proven strategies — let strategy-level filters decide
+    # Session breakout only — backtested as dominant alpha source.
+    # Multi-strategy routing tested (2026-03-17) and consistently underperforms:
+    #   session_breakout only: +12,573%, -51.7% DD, PF=1.53
+    #   multi-strategy:          +539%, -80.4% DD, PF=1.19
+    # Other strategies (mean_reversion, pullback_retest, trend_breakout) destroy
+    # value due to lower tp_rr (2.0-2.5 vs 7.0) and inability to compound.
     TREND_UP: RegimeDefinition(
         label=TREND_UP,
         description="Sustained upward price trend with momentum",
