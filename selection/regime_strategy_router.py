@@ -142,6 +142,15 @@ class RegimeStrategyRouter:
 
             sides = self.side_sel.select(regime, df, info["regime_proba"])
 
+            # Breakout strategies have their own HTF trend filter, so
+            # always evaluate both sides — the side selector's short-term
+            # indicator bias can suppress valid breakout directions
+            # (e.g. 2026-03-18: ETHUSD short breakout missed because
+            # EMA/RSI still showed long bias before the crash).
+            strategy_peek = self.strategy_sel.select(regime, symbol, "long")
+            if strategy_peek == "session_breakout":
+                sides = ["long", "short"]
+
             for side in sides:
                 strategy_name = self.strategy_sel.select(regime, symbol, side)
                 if strategy_name is None:

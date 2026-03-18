@@ -71,7 +71,11 @@ def generate_signals(assets: list, timeframe: str, start: str, equity: float):
     from portfolio.risk_engine import RiskEngine
 
     # 1. Load market data
-    svc = MarketDataService(provider="yfinance")
+    # Cache ≤5 min so every cycle sees the latest completed bar.
+    # The old 4-hour default caused the loop to miss intra-session breakouts
+    # (e.g. 2026-03-18: BTCUSD/ETHUSD shorts fired at 11:00 UTC but data
+    # was stale from the 10:11 UTC refresh until 14:11 UTC).
+    svc = MarketDataService(provider="yfinance", cache_max_age_hours=0.08)
     market_data = {}
     for asset in assets:
         try:
