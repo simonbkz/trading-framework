@@ -170,10 +170,18 @@ class BaseStrategy(ABC):
         if last is None:
             return None
 
-        # Reject stale signals where price has moved too far from the signal bar
-        # In the backtest, entry is at the signal bar close. In live mode, if price
-        # has already moved >1.5R against or >2R in favor, the setup is no longer
-        # aligned with what was backtested.
+        # Reject stale signals: both time-based and price-based checks.
+        # Time-based: signal bar should be recent (within max_signal_age bars).
+        # Price-based: price shouldn't have moved too far from entry.
+        signal_age_bars = len(signals) - signals.index.get_loc(last.name) - 1
+        max_signal_age = 4  # reject signals older than 4 bars
+        if signal_age_bars > max_signal_age:
+            log.info(
+                "%s/%s: rejecting stale signal — %d bars old (max %d)",
+                asset, self.name, signal_age_bars, max_signal_age,
+            )
+            return None
+
         current_price = float(signals.iloc[-1]["close"])
         signal_entry = float(last["close"])
         signal_sl = float(last.get("sl", 0))

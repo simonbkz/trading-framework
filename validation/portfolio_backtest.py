@@ -180,6 +180,9 @@ class PortfolioBacktester:
         trailing_activate_rr: float = 0.0,
         cooldown_bars: int = 0,             # no cooldown — capture all signals
         max_positions_per_asset: int = 2,   # pyramiding: up to 2 per asset
+        dd_risk_scaling: bool = False,       # reduce risk when in drawdown
+        dd_threshold_pct: float = 15.0,      # start scaling below this DD%
+        dd_min_risk_mult: float = 0.5,       # minimum risk multiplier at max DD
     ):
         self.market_data   = market_data
         self.regime_svc    = regime_service
@@ -195,6 +198,9 @@ class PortfolioBacktester:
         self.trailing_activate_rr = trailing_activate_rr
         self.cooldown_bars = cooldown_bars
         self.max_per_asset = max_positions_per_asset
+        self.dd_risk_scaling = dd_risk_scaling
+        self.dd_threshold_pct = dd_threshold_pct
+        self.dd_min_risk_mult = dd_min_risk_mult
 
     def run(self, equity: float = 10000.0) -> PortfolioBacktestResult:
         t0 = time.time()
@@ -422,8 +428,20 @@ class PortfolioBacktester:
                     if rr < self.min_rr:
                         continue
 
-                    # Fixed risk per trade — no scaling
-                    effective_risk_pct = self.risk_pct
+                    # Risk sizing: optionally scale down when in drawdown
+                    if self.dd_risk_scaling and peak_equity > 0:
+                        current_dd = (equity - peak_equity) / peak_equity * 100  # negative
+                        if current_dd < -self.dd_threshold_pct:
+                            # Linear scale from 1.0 at threshold to dd_min_risk_mult at max_dd
+                            max_dd = 50.0  # assume max DD cap
+                            dd_depth = min(abs(current_dd), max_dd) - self.dd_threshold_pct
+                            dd_range = max_dd - self.dd_threshold_pct
+                            scale = 1.0 - (1.0 - self.dd_min_risk_mult) * (dd_depth / dd_range)
+                            effective_risk_pct = self.risk_pct * max(scale, self.dd_min_risk_mult)
+                        else:
+                            effective_risk_pct = self.risk_pct
+                    else:
+                        effective_risk_pct = self.risk_pct
 
                     # Slippage on entry
                     if side == "long":

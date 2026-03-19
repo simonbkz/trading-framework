@@ -58,6 +58,38 @@ def _save_emitted_signals():
         log.warning("Failed to save dedup file: %s", exc)
 
 
+def _read_mt5_equity(fallback: float) -> float:
+    """
+    Read live account equity from the JSON file written by SignalBridge EA.
+    Falls back to the --equity CLI value if file is missing or stale.
+    """
+    # Check MQL5/Files sandbox first, then project signals/ folder
+    mt5_path = SETTINGS.execution.mt5_files_path
+    candidates = []
+    if mt5_path:
+        candidates.append(Path(mt5_path) / "account_equity.json")
+    candidates.append(ROOT / "signals" / "account_equity.json")
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            age_min = (datetime.now().timestamp() - path.stat().st_mtime) / 60
+            if age_min > 10:
+                log.debug("Equity file stale (%.0f min old), using fallback", age_min)
+                continue
+            data = json.loads(path.read_text())
+            equity = float(data["equity"])
+            if equity > 0:
+                log.info("MT5 equity: $%.2f (balance=$%.2f, %d open trades)",
+                         equity, data.get("balance", 0), data.get("open_trades", 0))
+                return equity
+        except Exception as exc:
+            log.warning("Failed to read equity file %s: %s", path, exc)
+
+    return fallback
+
+
 def generate_signals(assets: list, timeframe: str, start: str, equity: float):
     """Run one cycle of signal generation."""
     from data.market_data import MarketDataService
@@ -112,29 +144,31 @@ def generate_signals(assets: list, timeframe: str, start: str, equity: float):
     )
     proposals = router.route(market_data)
 
-    # 4. Process through risk engine
-    risk_engine = RiskEngine()
-    # Initialize all equity baselines to actual account equity
-    # (prevents false daily-loss / drawdown halts from hardcoded defaults)
-    risk_engine.current_equity = equity
-    risk_engine.peak_equity = equity
-    risk_engine.day_start_equity = equity
-    engine = SignalEngine(risk_engine=risk_engine, paper_mode=True)
-    signals = engine.process(proposals, equity=equity)
-
-    # 5. Deduplicate: only emit each breakout event once
-    #    The lookback window catches the same signal bar across multiple cycles,
-    #    but we must only send it to MT5 once to prevent duplicate trades.
-    new_signals = []
-    for sig in signals:
-        # Use asset|side|entry as dedup key (entry price is stable per bar)
-        # sig.timestamp is datetime.now() so it changes every cycle — unusable
-        key = f"{sig.asset}|{sig.side}|{sig.entry}"
+    # 4. Deduplicate proposals BEFORE converting to MT5Signals.
+    #    Key on the signal bar's timestamp (stable across cycles) instead of
+    #    entry price (which drifts as the current bar's close changes each cycle).
+    #    Old key "asset|side|entry" caused 11 duplicate BTCUSD trades on 2026-03-18.
+    unique_proposals = []
+    for prop in proposals:
+        # prop.timestamp is the signal bar datetime (e.g. 2026-03-18 11:00+00:00)
+        bar_ts = str(prop.timestamp)
+        key = f"{prop.asset}|{prop.side}|{bar_ts}"
         if key in _emitted_signals:
-            log.info("Skipping duplicate signal: %s %s (already emitted)", sig.asset, sig.side)
+            log.info("Skipping duplicate signal: %s %s bar=%s (already emitted)",
+                     prop.asset, prop.side, bar_ts)
             continue
         _emitted_signals.add(key)
-        new_signals.append(sig)
+        unique_proposals.append(prop)
+
+    # 5. Process unique proposals through risk engine
+    #    Read live equity from MT5 (auto-scales lots with account growth/drawdown)
+    live_equity = _read_mt5_equity(fallback=equity)
+    risk_engine = RiskEngine()
+    risk_engine.current_equity = live_equity
+    risk_engine.peak_equity = live_equity
+    risk_engine.day_start_equity = live_equity
+    engine = SignalEngine(risk_engine=risk_engine, paper_mode=True)
+    new_signals = engine.process(unique_proposals, equity=live_equity)
 
     # Prune old keys (keep last 200 to prevent memory growth)
     if len(_emitted_signals) > 200:

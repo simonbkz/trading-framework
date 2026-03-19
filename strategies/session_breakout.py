@@ -67,9 +67,24 @@ class SessionBreakoutStrategy(BaseStrategy):
             index=out.index,
         )
 
-        # Volume confirmation
-        vol_ma = out["volume"].rolling(20).mean()
-        vol_ok = out["volume"] >= p["vol_mult"] * vol_ma
+        # Volume confirmation — asset-class aware.
+        # yfinance returns 0 volume for most forex pairs, making the filter
+        # either trivially pass (0 >= 0) or trivially fail depending on bar.
+        # For assets with unreliable volume (median == 0), skip the filter.
+        vol_median = out["volume"].rolling(50, min_periods=20).median()
+        has_reliable_volume = vol_median.iloc[-1] > 0 if len(vol_median) > 0 else False
+        if has_reliable_volume:
+            vol_ma = out["volume"].rolling(20).mean()
+            vol_ok = out["volume"] >= p["vol_mult"] * vol_ma
+        else:
+            vol_ok = pd.Series(True, index=out.index)
+
+        # Weekend gap filter: suppress breakout on the first bar after a gap
+        # (e.g. Sunday open gap in forex). A gap-up past ref_high isn't a real
+        # session breakout — it's a gap fill setup with different dynamics.
+        time_delta = out.index.to_series().diff()
+        is_gap_bar = time_delta > pd.Timedelta(hours=4)  # >4h gap = market was closed
+        not_gap = ~is_gap_bar
 
         # Higher-timeframe trend alignment filter
         htf_trend = out.get("htf_trend", pd.Series(0, index=out.index))
@@ -78,7 +93,7 @@ class SessionBreakoutStrategy(BaseStrategy):
         if side == "long":
             # Only trade long when daily trend is not bearish (neutral or bullish)
             htf_ok = htf_trend >= 0
-            breakout = (out["close"] > ref_high + buffer) & in_session_window & vol_ok & htf_ok
+            breakout = (out["close"] > ref_high + buffer) & in_session_window & vol_ok & htf_ok & not_gap
             sl_price = ref_high - p["sl_atr_mult"] * atr
             sl_dist  = (out["close"] - sl_price).clip(lower=atr * 0.3)
             tp_price = out["close"] + sl_dist * p["tp_rr"]
@@ -86,11 +101,18 @@ class SessionBreakoutStrategy(BaseStrategy):
         else:
             # Only trade short when daily trend is not bullish
             htf_ok = htf_trend <= 0
-            breakout = (out["close"] < ref_low - buffer) & in_session_window & vol_ok & htf_ok
+            breakout = (out["close"] < ref_low - buffer) & in_session_window & vol_ok & htf_ok & not_gap
             sl_price = ref_low + p["sl_atr_mult"] * atr
             sl_dist  = (sl_price - out["close"]).clip(lower=atr * 0.3)
             tp_price = out["close"] - sl_dist * p["tp_rr"]
             direction = -1
+
+        # One signal per breakout event: suppress consecutive-bar duplicates.
+        # If the previous bar also triggered, this bar is a continuation of
+        # the same breakout — skip it. Backtested: saves ~44R across portfolio
+        # by avoiding worse-priced duplicate entries on the same move.
+        breakout_shifted = breakout.shift(1, fill_value=False)
+        breakout = breakout & ~breakout_shifted
 
         out["signal"]   = 0
         out.loc[breakout, "signal"] = direction
