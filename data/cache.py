@@ -70,6 +70,13 @@ class DataCache:
         except Exception as exc:
             log.warning("Cache write failed: %s", exc)
 
+    def age_hours(self, symbol: str, timeframe: str, start: str, end: str) -> float:
+        """Return age of cache file in hours, or inf if not found."""
+        path = self._path(symbol, timeframe, start, end)
+        if not path.exists():
+            return float("inf")
+        return (datetime.now().timestamp() - path.stat().st_mtime) / 3600
+
     def invalidate(self, symbol: str, timeframe: Optional[str] = None) -> int:
         """Remove cached files for a symbol (and optionally timeframe)."""
         pattern = f"{symbol}_*" if timeframe is None else f"{symbol}_{timeframe}_*"

@@ -67,6 +67,20 @@ class SessionBreakoutStrategy(BaseStrategy):
             index=out.index,
         )
 
+        # Day-of-week filter: block Monday entries (12% WR vs 20% avg).
+        # XAGUSD Monday = 0% WR over 23 trades, EURJPY Thursday = 5% WR.
+        # 07:00 UTC is the worst hour across all assets (6-13% WR).
+        dow = out.index.dayofweek  # 0=Monday
+        day_ok = pd.Series(dow != 0, index=out.index)  # block Monday
+        hour_ok = pd.Series(hour != session_open, index=out.index)  # skip first session hour
+
+        # Month filter: block May+Jun+Oct (weak breakout months).
+        # May+Oct: weak on 1H breakout data (poor follow-through despite daily returns).
+        # Jun: weakest month across 11 years of daily data (37% positive, -3.6% avg).
+        # Validated: adding Jun to May+Oct improves returns +5% with DD -49.0% (from -54.0%).
+        month = out.index.month
+        month_ok = pd.Series(~month.isin([5, 6, 10]), index=out.index)
+
         # Volume confirmation — asset-class aware.
         # yfinance returns 0 volume for most forex pairs, making the filter
         # either trivially pass (0 >= 0) or trivially fail depending on bar.
@@ -90,10 +104,22 @@ class SessionBreakoutStrategy(BaseStrategy):
         htf_trend = out.get("htf_trend", pd.Series(0, index=out.index))
         htf_strength = out.get("htf_trend_strength", pd.Series(0, index=out.index))
 
+        # USDJPY risk proxy: JPY strengthening = risk-off -> block crypto longs.
+        # Backtested: +36% return improvement with lower DD for crypto assets.
+        # Metals are unaffected (gold/silver are safe havens, not risk-on).
+        jpy_risk = out.get("jpy_risk", pd.Series(0, index=out.index)).fillna(0)
+        if asset in ("BTCUSD", "ETHUSD", "XRPUSD"):
+            if side == "long":
+                macro_ok = jpy_risk >= 0   # only long crypto in risk-on or neutral
+            else:
+                macro_ok = jpy_risk <= 0   # only short crypto in risk-off or neutral
+        else:
+            macro_ok = pd.Series(True, index=out.index)
+
         if side == "long":
             # Only trade long when daily trend is not bearish (neutral or bullish)
             htf_ok = htf_trend >= 0
-            breakout = (out["close"] > ref_high + buffer) & in_session_window & vol_ok & htf_ok & not_gap
+            breakout = (out["close"] > ref_high + buffer) & in_session_window & vol_ok & htf_ok & not_gap & day_ok & hour_ok & month_ok & macro_ok
             sl_price = ref_high - p["sl_atr_mult"] * atr
             sl_dist  = (out["close"] - sl_price).clip(lower=atr * 0.3)
             tp_price = out["close"] + sl_dist * p["tp_rr"]
@@ -101,7 +127,7 @@ class SessionBreakoutStrategy(BaseStrategy):
         else:
             # Only trade short when daily trend is not bullish
             htf_ok = htf_trend <= 0
-            breakout = (out["close"] < ref_low - buffer) & in_session_window & vol_ok & htf_ok & not_gap
+            breakout = (out["close"] < ref_low - buffer) & in_session_window & vol_ok & htf_ok & not_gap & day_ok & hour_ok & month_ok & macro_ok
             sl_price = ref_low + p["sl_atr_mult"] * atr
             sl_dist  = (sl_price - out["close"]).clip(lower=atr * 0.3)
             tp_price = out["close"] - sl_dist * p["tp_rr"]
@@ -121,8 +147,10 @@ class SessionBreakoutStrategy(BaseStrategy):
         out["ref_high"] = ref_high
         out["ref_low"]  = ref_low
         # Strength: breakout magnitude * HTF alignment bonus
+        # Guard: replace zero ATR with NaN to avoid inf, then fill NaN with 0.5 default
         base_strength = np.clip((out["close"] - ref_high).abs() / atr.replace(0, np.nan), 0, 1)
-        htf_bonus = 1.0 + 0.3 * htf_strength  # up to 30% boost for strong daily trend
+        base_strength = base_strength.fillna(0.5)
+        htf_bonus = (1.0 + 0.3 * htf_strength.fillna(0))  # up to 30% boost for strong daily trend
 
         # Macro multipliers
         macro_mult = pd.Series(1.0, index=out.index)

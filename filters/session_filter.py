@@ -58,6 +58,11 @@ class SessionFilter:
 
         active = pd.Series(False, index=timestamps)
 
+        # Exclude weekends: forex/metals markets closed Sat-Sun.
+        # Saturday after ~21:00 UTC (Sydney close) through Sunday ~21:00 UTC (Sydney open).
+        dow = ts_utc.dayofweek  # 0=Mon, 5=Sat, 6=Sun
+        is_weekend = (dow == 5) | (dow == 6)
+
         for session in self.sessions:
             if session in SESSION_LOCAL:
                 tz_name, start_h, end_h = SESSION_LOCAL[session]
@@ -83,6 +88,8 @@ class SessionFilter:
 
             active |= pd.Series(mask, index=timestamps)
 
+        # Zero out weekends (crypto sessions handle this separately via 24/7 trading)
+        active &= ~pd.Series(is_weekend, index=timestamps)
         return active
 
     def filter_df(self, df: pd.DataFrame) -> pd.DataFrame:

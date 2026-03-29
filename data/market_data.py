@@ -84,6 +84,23 @@ class MarketDataService:
             except Exception as exc:
                 log.warning("Provider '%s' failed for %s: %s — trying fallback", prov, symbol, exc)
 
+        # All providers failed — try stale cache as last resort.
+        # Stale data is better than no data (prevents full cycle failure
+        # during transient network outages like DNS blips).
+        stale_df = self.cache.get(
+            symbol, timeframe, start, end or "",
+            max_age_hours=999999,  # accept any age
+        )
+        if stale_df is not None and not stale_df.empty:
+            age_hours = self.cache.age_hours(symbol, timeframe, start, end or "")
+            log.warning(
+                "All providers failed for %s — using stale cache (%.1fh old, %d bars)",
+                symbol, age_hours, len(stale_df),
+            )
+            if preprocess:
+                stale_df = preprocess_ohlcv(stale_df, symbol=symbol, timeframe=timeframe)
+            return stale_df
+
         raise RuntimeError(
             f"All providers failed for {symbol} {timeframe}. "
             "Check your data provider configuration or supply a CSV file."

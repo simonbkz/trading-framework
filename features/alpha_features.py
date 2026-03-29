@@ -197,11 +197,81 @@ def add_momentum_divergence(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_macro_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add macro indicator features: DXY trend, VIX regime, USDJPY risk proxy.
+
+    These drive the macro multipliers in session_breakout strategy.
+    Fetched once and cached — adds ~2s per asset on first call.
+    """
+    import yfinance as yf
+    from utils.logger import get_logger
+    log = get_logger(__name__)
+
+    out = df.copy()
+    idx = out.index
+
+    # Determine if we need daily or intraday data
+    # For 1H bars, fetch daily macro and forward-fill onto intraday index
+    start = idx[0].strftime("%Y-%m-%d") if hasattr(idx[0], 'strftime') else str(idx[0])[:10]
+
+    macro_data = {}
+    for name, ticker in [("DXY", "DX-Y.NYB"), ("VIX", "^VIX"), ("USDJPY", "USDJPY=X")]:
+        try:
+            mdf = yf.download(ticker, start=start, interval="1d", progress=False)
+            if mdf is not None and len(mdf) > 10:
+                close = mdf["Close"].squeeze()
+                close.index = close.index.tz_localize("UTC") if close.index.tz is None else close.index.tz_convert("UTC")
+                macro_data[name] = close
+        except Exception as exc:
+            log.debug("Failed to load %s: %s", name, exc)
+
+    # DXY trend: EMA10 vs EMA30 crossover
+    if "DXY" in macro_data:
+        dxy = macro_data["DXY"]
+        dxy_ema10 = dxy.ewm(span=10, adjust=False).mean()
+        dxy_ema30 = dxy.ewm(span=30, adjust=False).mean()
+        dxy_trend = pd.Series(
+            np.where(dxy_ema10 > dxy_ema30, 1, np.where(dxy_ema10 < dxy_ema30, -1, 0)),
+            index=dxy.index,
+        )
+        # Reindex to intraday with forward-fill
+        out["dxy_trend"] = dxy_trend.reindex(idx, method="ffill").fillna(0).astype(int)
+    else:
+        out["dxy_trend"] = 0
+
+    # VIX regime: 0=low (<16), 1=normal, 2=elevated (>22), 3=extreme (>30)
+    if "VIX" in macro_data:
+        vix = macro_data["VIX"]
+        vix_regime = pd.Series(
+            np.where(vix > 30, 3, np.where(vix > 22, 2, np.where(vix < 16, 0, 1))),
+            index=vix.index,
+        )
+        out["vix_regime"] = vix_regime.reindex(idx, method="ffill").fillna(1).astype(int)
+    else:
+        out["vix_regime"] = 1
+
+    # USDJPY risk proxy: rising USDJPY = risk-on, falling = risk-off
+    if "USDJPY" in macro_data:
+        jpy = macro_data["USDJPY"]
+        jpy_ma5 = jpy.rolling(5).mean()
+        jpy_trend = pd.Series(
+            np.where(jpy > jpy_ma5, 1, np.where(jpy < jpy_ma5, -1, 0)),
+            index=jpy.index,
+        )
+        out["jpy_risk"] = jpy_trend.reindex(idx, method="ffill").fillna(0).astype(int)
+    else:
+        out["jpy_risk"] = 0
+
+    return out
+
+
 def add_alpha_features(
     df: pd.DataFrame,
     donchian_periods: list = None,
     ema_periods: list = None,
     include_macd: bool = True,
+    include_macro: bool = True,
 ) -> pd.DataFrame:
     """Apply all alpha features in sequence."""
     out = df.copy()
@@ -214,4 +284,9 @@ def add_alpha_features(
     out = add_mean_reversion_signals(out)
     out = add_higher_tf_trend(out)
     out = add_momentum_divergence(out)
+    if include_macro:
+        try:
+            out = add_macro_features(out)
+        except Exception:
+            pass  # macro features are optional — fail silently
     return out

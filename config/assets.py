@@ -282,6 +282,44 @@ ASSET_UNIVERSE: Dict[str, AssetConfig] = {
         min_atr_filter=0.10,
         leverage_max=50,
     ),
+    "SOLUSD": AssetConfig(
+        symbol="SOLUSD", display_name="Solana / USD", asset_class="crypto",
+        base_currency="SOL", quote_currency="USD", pip_size=0.01, pip_value_usd=1.0,
+        typical_spread_pips=2.0, yfinance_ticker="SOL-USD", twelve_data_symbol="SOL/USD",
+        alpha_vantage_symbol="SOLUSD", polygon_ticker="X:SOLUSD",
+        sessions=["london", "new_york", "sydney", "tokyo"], min_atr_filter=1.0, leverage_max=10,
+    ),
+    "XRPUSD": AssetConfig(
+        symbol="XRPUSD", display_name="Ripple / USD", asset_class="crypto",
+        base_currency="XRP", quote_currency="USD",
+        pip_size=0.0001,       # 4 decimal places on XM
+        pip_value_usd=0.10,    # 1 lot = 1000 XRP, 1 pip (0.0001) = $0.10
+        typical_spread_pips=30.0,  # XRP spread is wide (~30 pips = $0.003)
+        yfinance_ticker="XRP-USD", twelve_data_symbol="XRP/USD",
+        alpha_vantage_symbol="XRPUSD", polygon_ticker="X:XRPUSD",
+        sessions=["london", "new_york", "sydney", "tokyo"], min_atr_filter=0.01, leverage_max=10,
+    ),
+    "DOGEUSD": AssetConfig(
+        symbol="DOGEUSD", display_name="Dogecoin / USD", asset_class="crypto",
+        base_currency="DOGE", quote_currency="USD", pip_size=0.00001, pip_value_usd=1.0,
+        typical_spread_pips=2.0, yfinance_ticker="DOGE-USD", twelve_data_symbol="DOGE/USD",
+        alpha_vantage_symbol="DOGEUSD", polygon_ticker="X:DOGEUSD",
+        sessions=["london", "new_york", "sydney", "tokyo"], min_atr_filter=0.001, leverage_max=10,
+    ),
+    "BNBUSD": AssetConfig(
+        symbol="BNBUSD", display_name="BNB / USD", asset_class="crypto",
+        base_currency="BNB", quote_currency="USD", pip_size=0.01, pip_value_usd=1.0,
+        typical_spread_pips=2.0, yfinance_ticker="BNB-USD", twelve_data_symbol="BNB/USD",
+        alpha_vantage_symbol="BNBUSD", polygon_ticker="X:BNBUSD",
+        sessions=["london", "new_york", "sydney", "tokyo"], min_atr_filter=1.0, leverage_max=10,
+    ),
+    "ADAUSD": AssetConfig(
+        symbol="ADAUSD", display_name="Cardano / USD", asset_class="crypto",
+        base_currency="ADA", quote_currency="USD", pip_size=0.0001, pip_value_usd=1.0,
+        typical_spread_pips=2.0, yfinance_ticker="ADA-USD", twelve_data_symbol="ADA/USD",
+        alpha_vantage_symbol="ADAUSD", polygon_ticker="X:ADAUSD",
+        sessions=["london", "new_york", "sydney", "tokyo"], min_atr_filter=0.005, leverage_max=10,
+    ),
     "USOIL": AssetConfig(
         symbol="USOIL",
         display_name="WTI Crude Oil",

@@ -61,7 +61,7 @@ class SessionSettings:
 @dataclass
 class RiskSettings:
     default_risk_pct: float = 2.0        # % of equity per trade
-    max_open_trades: int = 12            # global across all instruments
+    max_open_trades: int = 10            # global across all instruments (10 reduces crypto overexposure)
     max_daily_loss_pct: float = 5.0
     max_drawdown_pct: float = 20.0
     volatility_target_pct: Optional[float] = None   # None = disabled

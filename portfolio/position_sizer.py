@@ -57,6 +57,11 @@ class PositionSizer:
             log.warning("Invalid SL distance for %s — returning zero size", proposal.asset)
             return {"lots": 0.0, "risk_amount": 0.0, "sl_distance": 0, "tp_distance": 0, "risk_pct": 0}
 
+        # Guard: reject near-zero equity
+        if equity < 10:
+            log.warning("Equity too low ($%.2f) for %s — returning zero size", equity, proposal.asset)
+            return {"lots": 0.0, "risk_amount": 0.0, "sl_distance": 0, "tp_distance": 0, "risk_pct": 0}
+
         try:
             cfg = get_asset(proposal.asset)
             sl_pips     = sl_dist / cfg.pip_size
@@ -66,7 +71,9 @@ class PositionSizer:
             # Fallback: fractional position
             lots = risk_amount / (sl_dist * 100000)
 
-        lots = max(0.01, round(lots, 2))
+        # Clamp lots to prevent oversized positions from tiny SL distances
+        MAX_LOTS = 50.0
+        lots = min(MAX_LOTS, max(0.01, round(lots, 2)))
 
         return {
             "lots":          lots,

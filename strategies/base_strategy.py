@@ -173,7 +173,13 @@ class BaseStrategy(ABC):
         # Reject stale signals: both time-based and price-based checks.
         # Time-based: signal bar should be recent (within max_signal_age bars).
         # Price-based: price shouldn't have moved too far from entry.
-        signal_age_bars = len(signals) - signals.index.get_loc(last.name) - 1
+        loc = signals.index.get_loc(last.name)
+        # get_loc returns a slice or array for duplicate indices — take the last position
+        if isinstance(loc, slice):
+            loc = loc.stop - 1
+        elif hasattr(loc, '__len__'):
+            loc = loc[-1] if len(loc) > 0 else len(signals) - 1
+        signal_age_bars = len(signals) - loc - 1
         max_signal_age = 4  # reject signals older than 4 bars
         if signal_age_bars > max_signal_age:
             log.info(

@@ -36,7 +36,7 @@ def fixed_risk_simulate(self, asset_signals, initial_equity):
             if sig_df is None or ts not in sig_df.index:
                 continue
             row = sig_df.loc[ts]
-            exit_price, exit_reason = self._check_exit(pos, row)
+            exit_price, exit_reason = self._check_exit(pos, row, bar_i)
             if exit_price is not None:
                 pnl_pct = self._compute_pnl(pos, exit_price)
                 equity *= (1 + pnl_pct / 100)
@@ -88,7 +88,8 @@ def fixed_risk_simulate(self, asset_signals, initial_equity):
                     stop_loss=sl_val, take_profit=tp_val, lots=0,
                     entry_time=ts,
                     risk_pct_effective=self.risk_pct,
-                    initial_risk_dist=risk_dist))
+                    initial_risk_dist=risk_dist,
+                    entry_bar_index=bar_i))
         peak_equity = max(peak_equity, equity)
         equity_points.append((ts, equity))
 
@@ -131,7 +132,7 @@ if __name__ == "__main__":
     sb.SessionBreakoutStrategy.default_params = make_params
 
     # NEW BEST: Replace USOIL with EURJPY
-    assets = ['XAUUSD', 'BTCUSD', 'XAGUSD', 'ETHUSD', 'EURJPY']
+    assets = ['XAUUSD', 'BTCUSD', 'XAGUSD', 'ETHUSD', 'XRPUSD']
     market_data = {}
     for asset in assets:
         df = svc.get(asset, timeframe='1h', start='2024-06-01')
@@ -143,9 +144,9 @@ if __name__ == "__main__":
     # PRODUCTION CONFIG: 2% risk, 12 max open, 2 per asset, no trail, no cooldown
     bt = PortfolioBacktester(
         market_data=market_data, regime_service=regime_svc,
-        parameter_store=param_store, max_open_trades=12,
+        parameter_store=param_store, max_open_trades=10,
         risk_pct=2.0, trailing_stop_atr=0.0, trailing_activate_rr=0,
-        cooldown_bars=0, min_rr=1.5, max_positions_per_asset=2)
+        cooldown_bars=6, min_rr=1.5, max_positions_per_asset=3)
     result = bt.run(equity=10000)
 
     # Additional stats
@@ -163,11 +164,13 @@ if __name__ == "__main__":
         print("=" * 60)
         print(f"Assets:         {', '.join(assets)}")
         print(f"Risk per trade: 2.0%")
-        print(f"TP Ratio:       7.0R")
-        print(f"SL ATR Mult:    1.5")
-        print(f"Max Open:       12")
-        print(f"Pyramiding:     2 per asset")
-        print(f"Trail/Cooldown: None/None")
+        print(f"TP Ratio:       7.0R (XRP=10.0)")
+        print(f"SL ATR Mult:    1.5 (XAG=2.0, ETH=1.0)")
+        print(f"Max Open:       10")
+        print(f"Pyramiding:     3 per asset")
+        print(f"SL Delay:       3 bars (cat=4x)")
+        print(f"Cooldown:       6 bars")
+        print(f"EC Trading:     MA=8, 0.75x below")
         print("-" * 60)
         print(f"Total Return:   {result.total_return_pct:+.2f}%")
         print(f"Max Drawdown:   {dd:.1f}%")
